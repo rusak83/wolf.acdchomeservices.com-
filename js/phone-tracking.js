@@ -153,6 +153,20 @@
     window.uetq.push('event', eventName, Object.assign({}, getPageContext(), payload || {}));
   }
 
+  function getDedupStore() {
+    window.__acdcConversionDeduper = window.__acdcConversionDeduper || {};
+    return window.__acdcConversionDeduper;
+  }
+
+  function shouldTrackConversion(dedupeKey, ttlMs) {
+    const store = getDedupStore();
+    const now = Date.now();
+    const lastSeen = store[dedupeKey] || 0;
+    if (now - lastSeen < ttlMs) return false;
+    store[dedupeKey] = now;
+    return true;
+  }
+
   function trackEvent(eventName, payload) {
     pushDataLayerEvent(eventName, payload);
     pushGtagEvent(eventName, payload);
@@ -225,11 +239,15 @@
       if (link.dataset.trackingBound === 'true') return;
       link.dataset.trackingBound = 'true';
       link.addEventListener('click', function() {
-        trackEvent('phone_click', {
+        const payload = {
           clickText: (link.textContent || '').trim(),
           clickLocation: link.dataset.location || link.dataset.callLabel || link.id || link.className || 'tel_link',
           phoneTarget: link.getAttribute('href')
-        });
+        };
+        const dedupeKey = ['call_click', window.location.pathname, payload.phoneTarget, payload.clickLocation].join('|');
+        if (!shouldTrackConversion(dedupeKey, 1200)) return;
+        trackEvent('call_click', payload);
+        trackEvent('phone_click', payload);
       });
     });
   }
@@ -239,11 +257,14 @@
       if (link.dataset.bookingTrackingBound === 'true') return;
       link.dataset.bookingTrackingBound = 'true';
       link.addEventListener('click', function() {
-        trackEvent('booking_click', {
+        const payload = {
           bookingUrl: link.href,
           triggerText: (link.textContent || '').trim(),
           clickLocation: link.dataset.location || link.id || link.className || 'booking_link'
-        });
+        };
+        const dedupeKey = ['booking_click', window.location.pathname, payload.bookingUrl, payload.clickLocation].join('|');
+        if (!shouldTrackConversion(dedupeKey, 1200)) return;
+        trackEvent('booking_click', payload);
       });
     });
   }
@@ -256,8 +277,7 @@
       form.addEventListener('submit', function(event) {
         const formData = new FormData(form);
         const submitMode = form.dataset.submitMode || 'native';
-
-        trackEvent('form_submit', {
+        const payload = {
           formId: form.id || '',
           formClass: form.className || '',
           formAction: form.getAttribute('action') || '',
@@ -267,7 +287,12 @@
           leadPhone: formData.get('phone') || '',
           leadZip: formData.get('zip') || '',
           leadIssue: formData.get('issue') || formData.get('message') || ''
-        });
+        };
+        const dedupeKey = ['form_submit', window.location.pathname, payload.formId, payload.formAction, submitMode].join('|');
+
+        if (shouldTrackConversion(dedupeKey, 1200)) {
+          trackEvent('form_submit', payload);
+        }
 
         if (submitMode === 'call' || submitMode === 'booking') {
           event.preventDefault();
